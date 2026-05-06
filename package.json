@@ -5,11 +5,9 @@
   "type": "module",
   "main": "server.js",
   "scripts": {
-    "start": "node server.js",
+    "start": "node vinted-scraper.js && node server.js",
     "dev": "nodemon server.js",
-    "scrape:vinted": "python scrapers/vinted.py",
-    "scrape:dba": "python scrapers/dba.py",
-    "clip:embed": "python lib/clip.py --embed-all"
+    "scrape": "node vinted-scraper.js"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.39.0",
