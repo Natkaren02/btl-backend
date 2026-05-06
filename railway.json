@@ -1,0 +1,11 @@
+{
+  "deploy": {
+    "cronJobs": [
+      {
+        "name": "vinted-scraper",
+        "schedule": "0 */6 * * *",
+        "command": "node scraper_worker.js"
+      }
+    ]
+  }
+}
