@@ -8,6 +8,7 @@ import usersRouter from './routes/users.js';
 import wardrobeRouter from './routes/wardrobe.js';
 import wishlistRouter from './routes/wishlist.js';
 import relistRouter from './routes/relist.js';
+import pinterestRouter from './routes/pinterest.js';
  
 const app = express();
 app.set('trust proxy', 1);
@@ -47,7 +48,8 @@ app.use('/api/brands',   brandsRouter);
 app.use('/api/users',    usersRouter);
 app.use('/api/wardrobe', wardrobeRouter);
 app.use('/api/wishlist', wishlistRouter);
-app.use('/api/relist',   relistRouter);
+app.use('/api/relist',    relistRouter);
+app.use('/api/pinterest', pinterestRouter);
  
 // Health check
 app.get('/health', (_req, res) => {
