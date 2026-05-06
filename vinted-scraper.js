@@ -6,122 +6,111 @@ const supabase = createClient(
 );
  
 const SEARCHES = [
-  { query: 'jeans', category: 'bottoms' },
-  { query: 'dress', category: 'dresses' },
-  { query: 'blazer', category: 'outerwear' },
-  { query: 'coat', category: 'outerwear' },
-  { query: 'skirt', category: 'bottoms' },
-  { query: 'boots', category: 'shoes' },
-  { query: 'cashmere', category: 'tops' },
-  { query: 'linen', category: 'bottoms' },
-  { query: 'silk', category: 'dresses' },
-  { query: 'wool', category: 'tops' },
-  { query: 'leather jacket', category: 'outerwear' },
-  { query: 'vintage', category: 'tops' },
+  { query: 'jeans dame', category: 'bottoms' },
+  { query: 'kjole', category: 'dresses' },
+  { query: 'blazer dame', category: 'outerwear' },
+  { query: 'frakke dame', category: 'outerwear' },
+  { query: 'nederdel', category: 'bottoms' },
+  { query: 'støvler dame', category: 'shoes' },
+  { query: 'cashmere sweater', category: 'tops' },
+  { query: 'silke kjole', category: 'dresses' },
+  { query: 'uld jakke', category: 'outerwear' },
+  { query: 'læder jakke dame', category: 'outerwear' },
 ];
  
-async function sleep(ms) {
-  return new Promise(r => setTimeout(r, ms));
-}
+async function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
  
-async function getVintedToken() {
+async function fetchDBA(query) {
+  const url = `https://www.dba.dk/soeg/?soeg=${encodeURIComponent(query)}&sideNr=1&pris_fra=&pris_til=&type=S%C3%A6lger`;
   try {
-    const res = await fetch('https://www.vinted.dk', {
+    const res = await fetch(url, {
       headers: {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
-        'Accept-Language': 'da-DK,da;q=0.9,en-US;q=0.8',
-        'Accept-Encoding': 'gzip, deflate, br',
-        'Connection': 'keep-alive',
-        'Upgrade-Insecure-Requests': '1',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        'Accept-Language': 'da-DK,da;q=0.9',
       },
-      redirect: 'follow',
+      signal: AbortSignal.timeout(20000),
     });
-    // Get cookies from response
-    const cookies = res.headers.get('set-cookie') || '';
-    return cookies;
-  } catch (err) {
-    console.error('Failed to get token:', err.message);
-    return '';
-  }
-}
- 
-async function fetchVinted(query, cookies) {
-  const params = new URLSearchParams({
-    search_text: query,
-    page: '1',
-    per_page: '48',
-    order: 'newest_first',
-    currency: 'DKK',
-  });
- 
-  try {
-    const res = await fetch(
-      `https://www.vinted.dk/api/v2/items?${params}`,
-      {
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-          'Accept': 'application/json, text/plain, */*',
-          'Accept-Language': 'da-DK,da;q=0.9,en-US;q=0.8',
-          'Referer': 'https://www.vinted.dk/',
-          'Origin': 'https://www.vinted.dk',
-          'Cookie': cookies,
-          'X-Requested-With': 'XMLHttpRequest',
-        },
-        signal: AbortSignal.timeout(20000),
-      }
-    );
- 
-    console.log(`  Vinted status: ${res.status}`);
+    console.log(`  DBA status: ${res.status}`);
     if (!res.ok) return [];
-    const data = await res.json();
-    return data.items || [];
+    const html = await res.text();
+    return parseDBAHtml(html, query);
   } catch (err) {
-    console.error(`  Fetch error: ${err.message}`);
+    console.error(`  DBA error: ${err.message}`);
     return [];
   }
 }
  
-function score(item) {
+function parseDBAHtml(html, query) {
+  const products = [];
+  
+  // Extract listing data from DBA HTML using regex patterns
+  const listingPattern = /data-listingid="(\d+)"[^>]*>[\s\S]*?class="[^"]*heading[^"]*"[^>]*>([\s\S]*?)<\/[^>]+>[\s\S]*?(\d+(?:\.\d+)?)\s*kr/g;
+  let match;
+  
+  while ((match = listingPattern.exec(html)) !== null) {
+    const [, id, titleRaw, priceRaw] = match;
+    const title = titleRaw.replace(/<[^>]+>/g, '').trim();
+    const price = Math.round(parseFloat(priceRaw.replace('.', '')) * 100);
+    
+    if (title && price > 0) {
+      products.push({
+        id,
+        title,
+        price,
+        url: `https://www.dba.dk/advert/${id}/`,
+      });
+    }
+  }
+ 
+  // Alternative pattern for newer DBA layout
+  if (products.length === 0) {
+    const altPattern = /"id":(\d+),"heading":"([^"]+)"[^}]*"price":(\d+)/g;
+    while ((match = altPattern.exec(html)) !== null) {
+      const [, id, title, price] = match;
+      products.push({
+        id,
+        title,
+        price: parseInt(price) * 100,
+        url: `https://www.dba.dk/advert/${id}/`,
+      });
+    }
+  }
+ 
+  return products;
+}
+ 
+function score(title) {
   let s = 55;
-  const t = (item.title || '').toLowerCase();
-  const b = (item.brand_title || '').toLowerCase();
+  const t = title.toLowerCase();
   if (t.includes('cashmere') || t.includes('kashmir')) s += 15;
-  if (t.includes('linen') || t.includes('hør')) s += 12;
-  if (t.includes('wool') || t.includes('uld')) s += 10;
-  if (t.includes('silk') || t.includes('silke')) s += 10;
-  if (t.includes('organic') || t.includes('økologisk')) s += 10;
+  if (t.includes('hør') || t.includes('linen')) s += 12;
+  if (t.includes('uld') || t.includes('wool')) s += 10;
+  if (t.includes('silke') || t.includes('silk')) s += 10;
+  if (t.includes('læder') || t.includes('leather')) s += 8;
   if (t.includes('vintage')) s += 8;
-  if (t.includes('cotton') || t.includes('bomuld')) s += 5;
-  if (t.includes('leather') || t.includes('læder')) s += 5;
-  const goodBrands = ['nudie','filippa','samsøe','norse','aiayu','ganni','arket','cos','weekday','second female','gestuz','remains','rotate','wood wood'];
-  if (goodBrands.some(x => b.includes(x))) s += 10;
+  if (t.includes('økologisk') || t.includes('organic')) s += 10;
+  if (t.includes('nudie') || t.includes('filippa') || t.includes('norse') || t.includes('ganni')) s += 10;
   return Math.min(100, s);
 }
  
-function parse(item, category) {
-  try {
-    if (!item.id || !item.title) return null;
-    const price = Math.round(parseFloat(item.price_numeric || 0) * 100);
-    if (price === 0) return null;
-    const images = (item.photos || []).map(p => p.url || p.full_size_url).filter(Boolean).slice(0, 4);
-    return {
-      source: 'vinted',
-      source_id: String(item.id),
-      source_url: `https://www.vinted.dk/items/${item.id}`,
-      title: item.title,
-      description: (item.description || '').substring(0, 500),
-      price,
-      currency: 'DKK',
-      images,
-      size_label: item.size_title || '',
-      category: category || 'other',
-      fibre_data_source: 'unknown',
-      available: true,
-      last_seen_at: new Date().toISOString(),
-      sustainability_score: score(item),
-    };
-  } catch { return null; }
+function toProduct(item, category) {
+  return {
+    source: 'dba',
+    source_id: String(item.id),
+    source_url: item.url,
+    title: item.title,
+    description: '',
+    price: item.price,
+    currency: 'DKK',
+    images: [],
+    size_label: '',
+    category,
+    fibre_data_source: 'unknown',
+    available: true,
+    last_seen_at: new Date().toISOString(),
+    sustainability_score: score(item.title),
+  };
 }
  
 async function upsert(products) {
@@ -132,21 +121,16 @@ async function upsert(products) {
 }
  
 async function run() {
-  console.log(`\n=== Vinted Scraper: ${new Date().toISOString()} ===`);
-  
-  console.log('Getting session cookies...');
-  const cookies = await getVintedToken();
-  console.log(`Got cookies: ${cookies ? 'yes' : 'no'}`);
-  
-  await sleep(3000);
-  
+  console.log(`\n=== DBA Scraper: ${new Date().toISOString()} ===`);
   let total = 0;
+  
   for (const { query, category } of SEARCHES) {
-    console.log(`\nScraping: "${query}"`);
-    const items = await fetchVinted(query, cookies);
+    console.log(`\nScraping DBA: "${query}"`);
+    const items = await fetchDBA(query);
     console.log(`  Found ${items.length} items`);
-    const products = items.map(i => parse(i, category)).filter(Boolean);
-    if (products.length > 0) {
+    
+    if (items.length > 0) {
+      const products = items.map(i => toProduct(i, category));
       const saved = await upsert(products);
       total += saved;
       console.log(`  Saved ${saved}`);
