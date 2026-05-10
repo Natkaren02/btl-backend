@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { supabase } from '../lib/supabase.js';
+import { analyseImage, analyseBoard } from '../lib/vision.js';
  
 const router = Router();
  
@@ -73,6 +74,41 @@ async function getProfilePins(token) {
   });
 }
  
+async function searchProducts(searchTerms) {
+  const allProducts = [];
+  const seenIds = new Set();
+ 
+  for (const term of (searchTerms || []).slice(0, 5)) {
+    try {
+      const { data } = await supabase
+        .from('products')
+        .select('*, brand:brands(name, verified, certifications)')
+        .eq('available', true)
+        .textSearch('search_vector', term, { type: 'websearch', config: 'english' })
+        .order('sustainability_score', { ascending: false })
+        .limit(10);
+      for (const p of data || []) {
+        if (!seenIds.has(p.id)) { seenIds.add(p.id); allProducts.push(p); }
+      }
+    } catch {}
+  }
+ 
+  // Fallback to top scored products if not enough results
+  if (allProducts.length < 12) {
+    const { data: fallback } = await supabase
+      .from('products')
+      .select('*, brand:brands(name, verified, certifications)')
+      .eq('available', true)
+      .order('sustainability_score', { ascending: false })
+      .limit(24);
+    for (const p of fallback || []) {
+      if (!seenIds.has(p.id)) { seenIds.add(p.id); allProducts.push(p); }
+    }
+  }
+ 
+  return allProducts.slice(0, 24);
+}
+ 
 router.get('/auth', (req, res) => {
   const params = new URLSearchParams({
     client_id: PINTEREST_APP_ID,
@@ -141,6 +177,7 @@ router.get('/pins/:sessionKey/:boardId', async (req, res) => {
   }
 });
  
+// Analyse whole board using Claude vision
 router.post('/match', async (req, res) => {
   const { session_key, board_id } = req.body;
   const token = await getSession(session_key);
@@ -149,16 +186,51 @@ router.post('/match', async (req, res) => {
     const pins = board_id === 'profile'
       ? await getProfilePins(token)
       : await getPins(token, board_id);
-    console.log(`Matching ${pins.length} pins from ${board_id}`);
-    const { data: products } = await supabase
-      .from('products')
-      .select('*, brand:brands(name, verified, certifications)')
-      .eq('available', true)
-      .order('sustainability_score', { ascending: false })
-      .limit(24);
-    res.json({ pins_found: pins.length, results: products || [] });
+    console.log(`Analysing ${pins.length} pins from ${board_id}`);
+ 
+    // Use Claude vision to analyse board images
+    const analysis = await analyseBoard(pins);
+    console.log('Style analysis:', analysis.summary);
+ 
+    const products = await searchProducts(analysis.search_terms);
+ 
+    res.json({
+      pins_found: pins.length,
+      results: products,
+      analysis: {
+        summary: analysis.summary,
+        style_vibe: analysis.style_vibe,
+        colours: analysis.dominant_colours || [],
+        materials: analysis.dominant_materials || [],
+        search_terms: analysis.search_terms || [],
+      }
+    });
   } catch (err) {
     console.error('Match error:', err);
+    res.status(500).json({ error: 'Matching failed' });
+  }
+});
+ 
+// Analyse single pin — every component of the outfit
+router.post('/match-pin', async (req, res) => {
+  const { session_key, pin_image, pin_id } = req.body;
+  const token = await getSession(session_key);
+  if (!token) return res.status(404).json({ error: 'Session expired' });
+  if (!pin_image) return res.status(400).json({ error: 'No image provided' });
+  try {
+    console.log(`Analysing single pin: ${pin_id}`);
+    const analysis = await analyseImage(pin_image);
+    const products = await searchProducts(analysis?.search_terms);
+    res.json({
+      results: products,
+      analysis: {
+        items: analysis?.items || [],
+        overall_vibe: analysis?.overall_vibe,
+        search_terms: analysis?.search_terms || [],
+      }
+    });
+  } catch (err) {
+    console.error('Pin match error:', err);
     res.status(500).json({ error: 'Matching failed' });
   }
 });
