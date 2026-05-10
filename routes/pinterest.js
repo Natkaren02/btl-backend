@@ -1,24 +1,24 @@
 import { Router } from 'express';
 import { supabase } from '../lib/supabase.js';
 import { analyseImage, analyseBoard } from '../lib/vision.js';
- 
+
 const router = Router();
- 
+
 const PINTEREST_APP_ID = process.env.PINTEREST_APP_ID;
 const PINTEREST_APP_SECRET = process.env.PINTEREST_APP_SECRET;
 const FRONTEND_URL = process.env.FRONTEND_URL || 'https://sparkly-longma-38df56.netlify.app';
 const BACKEND_URL = 'https://btl-backend-production-f682.up.railway.app';
 const REDIRECT_URI = `${BACKEND_URL}/api/pinterest/callback`;
- 
+
 async function saveSession(key, token) {
   await supabase.from('pinterest_sessions').upsert({ session_key: key, access_token: token });
 }
- 
+
 async function getSession(key) {
   const { data } = await supabase.from('pinterest_sessions').select('access_token').eq('session_key', key).single();
   return data?.access_token || null;
 }
- 
+
 async function getAllBoards(token) {
   let boards = [];
   let bookmark = null;
@@ -33,7 +33,7 @@ async function getAllBoards(token) {
   } while (bookmark);
   return boards;
 }
- 
+
 async function getPins(token, boardId) {
   let pins = [];
   let bookmark = null;
@@ -49,7 +49,9 @@ async function getPins(token, boardId) {
     const newPins = (data.items || []).map(pin => {
       const imgs = pin.media?.images || {};
       const keys = Object.keys(imgs);
-      const imgUrl = keys.length > 0 ? imgs[keys[0]]?.url : null;
+      const imgUrl = imgs['400x300']?.url || imgs['736x']?.url || imgs['600x']?.url ||
+                     imgs['400x']?.url || imgs['236x']?.url || imgs['150x150']?.url ||
+                     (keys.length > 0 ? imgs[keys[0]]?.url : null);
       return { id: pin.id, title: pin.title || 'Saved pin', image: imgUrl };
     });
     pins = [...pins, ...newPins];
@@ -57,7 +59,7 @@ async function getPins(token, boardId) {
   } while (bookmark && pins.length < 100);
   return pins;
 }
- 
+
 async function getProfilePins(token) {
   const res = await fetch('https://api.pinterest.com/v5/pins?page_size=25', {
     headers: { 'Authorization': `Bearer ${token}` }
@@ -69,15 +71,17 @@ async function getProfilePins(token) {
   return (data.items || []).map(pin => {
     const imgs = pin.media?.images || {};
     const keys = Object.keys(imgs);
-    const imgUrl = keys.length > 0 ? imgs[keys[0]]?.url : null;
+    const imgUrl = imgs['400x300']?.url || imgs['736x']?.url || imgs['600x']?.url ||
+                   imgs['400x']?.url || imgs['236x']?.url || imgs['150x150']?.url ||
+                   (keys.length > 0 ? imgs[keys[0]]?.url : null);
     return { id: pin.id, title: pin.title || 'Saved pin', image: imgUrl };
   });
 }
- 
+
 async function searchProducts(searchTerms) {
   const allProducts = [];
   const seenIds = new Set();
- 
+
   for (const term of (searchTerms || []).slice(0, 5)) {
     try {
       const { data } = await supabase
@@ -92,8 +96,7 @@ async function searchProducts(searchTerms) {
       }
     } catch {}
   }
- 
-  // Fallback to top scored products if not enough results
+
   if (allProducts.length < 12) {
     const { data: fallback } = await supabase
       .from('products')
@@ -105,10 +108,10 @@ async function searchProducts(searchTerms) {
       if (!seenIds.has(p.id)) { seenIds.add(p.id); allProducts.push(p); }
     }
   }
- 
+
   return allProducts.slice(0, 24);
 }
- 
+
 router.get('/auth', (req, res) => {
   const params = new URLSearchParams({
     client_id: PINTEREST_APP_ID,
@@ -119,7 +122,7 @@ router.get('/auth', (req, res) => {
   });
   res.redirect(`https://www.pinterest.com/oauth/?${params}`);
 });
- 
+
 router.get('/callback', async (req, res) => {
   const { code } = req.query;
   if (!code) return res.redirect(`${FRONTEND_URL}/search?pinterest=error`);
@@ -145,7 +148,7 @@ router.get('/callback', async (req, res) => {
     res.redirect(`${FRONTEND_URL}/search?pinterest=error`);
   }
 });
- 
+
 router.get('/boards/:sessionKey', async (req, res) => {
   const token = await getSession(req.params.sessionKey);
   if (!token) return res.status(404).json({ error: 'Session expired' });
@@ -161,7 +164,7 @@ router.get('/boards/:sessionKey', async (req, res) => {
     res.status(500).json({ error: 'Failed to fetch boards' });
   }
 });
- 
+
 router.get('/pins/:sessionKey/:boardId', async (req, res) => {
   const token = await getSession(req.params.sessionKey);
   if (!token) return res.status(404).json({ error: 'Session expired' });
@@ -176,8 +179,7 @@ router.get('/pins/:sessionKey/:boardId', async (req, res) => {
     res.status(500).json({ error: 'Failed to fetch pins' });
   }
 });
- 
-// Analyse whole board using Claude vision
+
 router.post('/match', async (req, res) => {
   const { session_key, board_id } = req.body;
   const token = await getSession(session_key);
@@ -187,13 +189,12 @@ router.post('/match', async (req, res) => {
       ? await getProfilePins(token)
       : await getPins(token, board_id);
     console.log(`Analysing ${pins.length} pins from ${board_id}`);
- 
-    // Use Claude vision to analyse board images
+
     const analysis = await analyseBoard(pins);
     console.log('Style analysis:', analysis.summary);
- 
+
     const products = await searchProducts(analysis.search_terms);
- 
+
     res.json({
       pins_found: pins.length,
       results: products,
@@ -210,8 +211,7 @@ router.post('/match', async (req, res) => {
     res.status(500).json({ error: 'Matching failed' });
   }
 });
- 
-// Analyse single pin — every component of the outfit
+
 router.post('/match-pin', async (req, res) => {
   const { session_key, pin_image, pin_id } = req.body;
   const token = await getSession(session_key);
@@ -234,5 +234,5 @@ router.post('/match-pin', async (req, res) => {
     res.status(500).json({ error: 'Matching failed' });
   }
 });
- 
+
 export default router;
