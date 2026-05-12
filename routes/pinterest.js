@@ -45,9 +45,13 @@ async function getPins(token, boardId) {
     const data = await res.json();
     const newPins = (data.items || []).map(pin => {
       const imgs = pin.media?.images || {};
-      const imgUrl = imgs['400x300']?.url || imgs['736x']?.url || imgs['600x']?.url ||
-                     imgs['400x']?.url || imgs['236x']?.url || imgs['150x150']?.url ||
-                     (Object.keys(imgs).length > 0 ? imgs[Object.keys(imgs)[0]]?.url : null);
+      // Get highest resolution available
+      const keys = Object.keys(imgs);
+      const sorted = keys.sort((a, b) => {
+        const getW = k => imgs[k]?.width || parseInt(k) || 0;
+        return getW(b) - getW(a);
+      });
+      const imgUrl = sorted.length > 0 ? imgs[sorted[0]]?.url : null;
       return { id: pin.id, title: pin.title || 'Saved pin', image: imgUrl };
     });
     pins = [...pins, ...newPins];
@@ -63,8 +67,12 @@ async function getProfilePins(token) {
   const data = await res.json();
   return (data.items || []).map(pin => {
     const imgs = pin.media?.images || {};
-    const imgUrl = imgs['400x300']?.url || imgs['736x']?.url ||
-                   (Object.keys(imgs).length > 0 ? imgs[Object.keys(imgs)[0]]?.url : null);
+    const keys = Object.keys(imgs);
+    const sorted = keys.sort((a, b) => {
+      const getW = k => imgs[k]?.width || parseInt(k) || 0;
+      return getW(b) - getW(a);
+    });
+    const imgUrl = sorted.length > 0 ? imgs[sorted[0]]?.url : null;
     return { id: pin.id, title: pin.title || 'Saved pin', image: imgUrl };
   });
 }
