@@ -10,6 +10,7 @@ import wishlistRouter from './routes/wishlist.js';
 import relistRouter from './routes/relist.js';
 import pinterestRouter from './routes/pinterest.js';
 import etsyRouter from './routes/etsy.js';
+import ebayRouter from './routes/ebay.js';
 
 const app = express();
 app.set('trust proxy', 1);
@@ -52,6 +53,7 @@ app.use('/api/wishlist',  wishlistRouter);
 app.use('/api/relist',    relistRouter);
 app.use('/api/pinterest', pinterestRouter);
 app.use('/api/etsy',      etsyRouter);
+app.use('/api/ebay',      ebayRouter);
 
 // Health check
 app.get('/health', (_req, res) => {
