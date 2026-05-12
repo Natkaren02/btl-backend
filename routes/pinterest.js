@@ -204,6 +204,7 @@ router.post('/match', async (req, res) => {
         colours: analysis.dominant_colours || [],
         materials: analysis.dominant_materials || [],
         search_terms: analysis.search_terms || [],
+        items: analysis.items || [], // per-pin item breakdown
       }
     });
   } catch (err) {
