@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { supabase } from '../lib/supabase.js';
 import { analyseImage, analyseBoard } from '../lib/vision.js';
+import { createJob, getJob, updateJob, runAnalysisJob } from '../lib/jobs.js';
 
 const router = Router();
 
